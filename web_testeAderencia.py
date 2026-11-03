@@ -272,13 +272,17 @@ if executar or st.session_state.executado:
 
         for col in tabuas_mortalidade.columns:
           if col != "idade":
+            # Converte com segurança tratando vírgula como ponto decimal
             if tabuas_mortalidade[col].dtype == object:
               tabuas_mortalidade[col] = (
                   tabuas_mortalidade[col]
                   .astype(str)
-                  .str.replace(",", ".")
-                  .astype(float)
+                  .str.replace(".", "", regex=False)
+                  .str.replace(",", ".", regex=False)
               )
+            tabuas_mortalidade[col] = pd.to_numeric(
+                tabuas_mortalidade[col], errors="coerce"
+            ).fillna(0.0)
 
         ano_inicio_int = data_inicio_obs.year
         ano_fim_int = data_final_obs.year
