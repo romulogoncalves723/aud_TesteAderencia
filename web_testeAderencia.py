@@ -62,7 +62,7 @@ data_data_fim_obs = st.sidebar.date_input(
 data_inicio_obs = pd.to_datetime(data_inicio_obs)
 data_final_obs = pd.to_datetime(data_data_fim_obs)
 
-TABUA_PATH = "Tabuas_Mortalidade_Geral Civil e Militar.csv"
+TABUA_PATH = "https://raw.githubusercontent.com/romulogoncalves723/aud_TesteAderencia/refs/heads/main/Tabuas_Mortalidade_Geral%20Civil%20e%20Militar.csv"
 
 st.sidebar.markdown("---")
 col_btn1, col_btn2 = st.sidebar.columns(2)
