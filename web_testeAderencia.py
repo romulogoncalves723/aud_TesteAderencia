@@ -2,7 +2,6 @@ import io
 import numpy as np
 import pandas as pd
 import streamlit as st
-import requests
 
 st.set_page_config(
     page_title="Auditoria de Tábuas Biométricas",
@@ -87,8 +86,7 @@ if executar or st.session_state.executado:
         " Aguarde."
     ):
       try:
-        response = requests.get(TABUA_PATH)
-        tabuas_mortalidade = pd.read_csv(io.BytesIO(response.content), sep=";", encoding="latin1")
+        tabuas_mortalidade = pd.read_csv(TABUA_PATH, sep=";", encoding="latin1", engine="python")
         ativos = pd.read_csv(uploaded_ativos, sep=";", encoding="latin1")
         inativos = pd.read_csv(uploaded_inativos, sep=";", encoding="latin1")
         pensionistas = pd.read_csv(
