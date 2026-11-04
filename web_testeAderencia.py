@@ -86,7 +86,9 @@ if executar or st.session_state.executado:
         " Aguarde."
     ):
       try:
-        tabuas_mortalidade = pd.read_csv(TABUA_PATH, sep=";", encoding="latin1", engine="python")
+        tabuas_mortalidade = pd.read_csv(
+            TABUA_PATH, sep=";", encoding="utf-8", decimal=","
+        )
         ativos = pd.read_csv(uploaded_ativos, sep=";", encoding="latin1")
         inativos = pd.read_csv(uploaded_inativos, sep=";", encoding="latin1")
         pensionistas = pd.read_csv(
