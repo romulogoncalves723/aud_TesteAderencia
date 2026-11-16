@@ -1,179 +1,183 @@
+from __future__ import annotations
+
 import io
+from datetime import date
+from typing import Iterable
+
 import numpy as np
 import pandas as pd
 import streamlit as st
 
+
+# CONFIGURAÇÕES DA BARRA
+
 st.set_page_config(
     page_title="Auditoria de Tábuas Biométricas",
     page_icon="📊",
-    layout="wide",
+    layout="wide"
 )
 
-# Estilização CSS personalizada para uniformizar os botões
+# Estilização CSS 
 st.markdown("""
     <style>
+        .main {
+            background-color: #0e1117;
+        }
+        .stMetric {
+            background-color: #ffffff !important;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #d1d5db !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .stMetric label {
+            color: #4b5563 !important;
+            font-weight: 600 !important;
+        }
+        .stMetric [data-testid="stMetricValue"] {
+            color: #111827 !important;
+        }
         .stButton > button {
-            width: 100%;
             border-radius: 6px;
             font-weight: 600;
+        }
+        div[data-testid="stSidebar"] {
+            background-color: #111827;
+            border-right: 1px solid #1f2937;
         }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 Auditoria de Aderência de Tábuas Biométricas")
-st.markdown(
+st.title("📊 Teste de Aderência de Tábuas Biométricas")
+
+st.caption(
     "Ferramenta desenvolvida para Análise de Dados,"
-    " processamento, limpeza, cálculo de expostos ao risco e auditoria de"
-    " mortalidade do Rioprevidência."
+    " processamento, limpeza, cálculo de expostos ao risco e auditoria de mortalidade"
 )
 
-st.markdown("---")
+MAX_AGE = 126
 
-if "executado" not in st.session_state:
-  st.session_state.executado = False
 
-st.sidebar.header("📝 Upload de arquivos e seleção de datas")
-st.sidebar.markdown("*Faça o upload dos arquivos CSV abaixo:*")
+# FUNÇÕES AUXILIARES
 
-uploaded_ativos = st.sidebar.file_uploader(
-    "📂 Ativos (.csv)", type=["csv"], help="Arraste ou selecione o arquivo de Ativos"
-)
-uploaded_inativos = st.sidebar.file_uploader(
-    "📂 Inativos (.csv)", type=["csv"], help="Arraste ou selecione o arquivo de Inativos"
-)
-uploaded_pensionistas = st.sidebar.file_uploader(
-    "📂 Pensionistas (.csv)", type=["csv"], help="Arraste ou selecione o arquivo de Pensionistas"
-)
+def normalizar_nome_coluna(x: str) -> str:
+    return str(x).replace("", "").strip()
 
-st.sidebar.markdown("---")
-st.sidebar.header("📅 Período de Observação")
 
-data_inicio_obs = st.sidebar.date_input(
-    "Data de Início", 
-    value=pd.to_datetime("2019-01-01"),
-    format="DD/MM/YYYY"
-)
-data_data_fim_obs = st.sidebar.date_input(
-    "Data de Término", 
-    value=pd.to_datetime("2023-12-31"),
-    format="DD/MM/YYYY"
-)
+def ler_csv(upload, nome: str) -> pd.DataFrame:
+    """Lê arquivos CSV com delimitadores e codificações comuns."""
 
-data_inicio_obs = pd.to_datetime(data_inicio_obs)
-data_final_obs = pd.to_datetime(data_data_fim_obs)
+    for enc in ("latin1", "utf-8-sig", "cp1252"):
 
-TABUA_PATH = "https://raw.githubusercontent.com/romulogoncalves723/aud_TesteAderencia/refs/heads/main/Tabuas_Mortalidade_Geral%20Civil%20e%20Militar.csv"
+        for sep in (";", ",", " "):
 
-st.sidebar.markdown("---")
-col_btn1, col_btn2 = st.sidebar.columns(2)
-executar = col_btn1.button("🚀 Executar", type="primary")
-limpar = col_btn2.button("🧹 Limpar")
+            try:
+                upload.seek(0)
 
-if limpar:
-  st.session_state.executado = False
-  st.rerun()
+                df = pd.read_csv(
+                    upload,
+                    sep=sep,
+                    encoding=enc,
+                    dtype=str,
+                    low_memory=False
+                )
 
-if executar or st.session_state.executado:
-  if not uploaded_ativos or not uploaded_inativos or not uploaded_pensionistas:
-    st.error(
-        "⚠️ Por favor, faça o upload dos três arquivos (Ativos, Inativos e"
-        " Pensionistas) no menu lateral para continuar."
+                if len(df.columns) > 1:
+
+                    df.columns = [
+                        normalizar_nome_coluna(c)
+                        for c in df.columns
+                    ]
+
+                    return df
+
+            except Exception:
+                continue
+
+    raise ValueError(
+        f"Não foi possível ler {nome}. "
+        "Verifique o delimitador e a codificação."
     )
-  else:
-    st.session_state.executado = True
-    with st.spinner(
-        "Processando ETL, limpeza, segregação e cálculos de exposição..."
-        " Aguarde."
-    ):
-      try:
-        tabuas_mortalidade = pd.read_csv(
-            TABUA_PATH, sep=";", encoding="utf-8", decimal=","
-        )
-        ativos = pd.read_csv(uploaded_ativos, sep=";", encoding="latin1")
-        inativos = pd.read_csv(uploaded_inativos, sep=";", encoding="latin1")
-        pensionistas = pd.read_csv(
-            uploaded_pensionistas, sep=";", encoding="latin1", low_memory=False
+
+
+def exigir_colunas(
+    df: pd.DataFrame,
+    colunas: Iterable[str],
+    nome: str
+):
+
+    faltantes = [
+        c for c in colunas
+        if c not in df.columns
+    ]
+
+    if faltantes:
+
+        raise ValueError(
+            f"Arquivo {nome}: faltam as colunas {faltantes}."
         )
 
-        ativos["DTNASC"] = pd.to_datetime(
-            ativos["DTNASC"], format="%d/%m/%Y", errors="coerce"
-        )
-        ativos["DTEXERC"] = pd.to_datetime(
-            ativos["DTEXERC"], format="%d/%m/%Y", errors="coerce"
-        )
-        ativos["DTVAC"] = pd.to_datetime(
-            ativos["DTVAC"], format="%d/%m/%Y", errors="coerce"
-        )
-        ativos["DTVAC"] = ativos["DTVAC"].fillna(pd.to_datetime("2200-01-01"))
-        ativos["FORMAVAC"] = (
-            ativos["FORMAVAC"].fillna("VIVO").replace("", "VIVO")
-        )
-        ativos["TIPO_BENEFICIO"] = 222
-        ativos["DTAPOSENT"] = ativos["DTVAC"]
-        ativos["DS_PREFIXO"] = 111
-        ativos["DATA_FIM"] = ativos["DTVAC"]
-        ativos["DATA_INICIO"] = ativos["DTEXERC"]
-        ativos["CLASSE"] = "ATIVO"
 
-        inativos["ID_FUNCIONAL"] = inativos["ID_FUNCIONAL"].astype(str)
-        inativos["DTNASC"] = pd.to_datetime(
-            inativos["DTNASC"], format="%d/%m/%Y", errors="coerce"
-        )
-        inativos["DTEXERC"] = pd.to_datetime(
-            inativos["DTEXERC"], format="%d/%m/%Y", errors="coerce"
-        )
-        inativos["DTAPOSENT"] = pd.to_datetime(
-            inativos["DTAPOSENT"], format="%d/%m/%Y", errors="coerce"
-        )
-        inativos["DTVAC"] = pd.to_datetime(
-            inativos["DTVAC"], format="%d/%m/%Y", errors="coerce"
-        )
-        inativos["DTVAC"] = inativos["DTVAC"].fillna(
-            pd.to_datetime("2200-01-01")
-        )
-        inativos["FORMAVAC"] = (
-            inativos["FORMAVAC"].fillna("VIVO").replace("", "VIVO")
-        )
-        inativos = inativos.dropna(subset=["DTAPOSENT"])
-        inativos["TIPO_BENEFICIO"] = inativos["TIPO_BENEFICIO"].fillna(222)
-        inativos["DS_PREFIXO"] = 111
-        inativos["DATA_FIM"] = inativos["DTVAC"]
-        inativos["DATA_INICIO"] = inativos["DTAPOSENT"]
-        inativos["CLASSE"] = "INATIVO"
+def data_flexivel(serie: pd.Series) -> pd.Series:
 
-        pensionistas["DTNASC"] = pd.to_datetime(
-            pensionistas["DTNASC"], format="%d/%m/%Y", errors="coerce"
-        )
-        pensionistas["DT_INICIO_PENSAO"] = pd.to_datetime(
-            pensionistas["DT_INICIO_PENSAO"],
-            format="%d/%m/%Y",
-            errors="coerce",
-        )
-        pensionistas["DTVAC"] = pd.to_datetime(
-            pensionistas["DTVAC"], format="%d/%m/%Y", errors="coerce"
-        )
-        pensionistas["DTVAC"] = pensionistas["DTVAC"].fillna(
-            pd.to_datetime("2200-01-01")
-        )
-        pensionistas["FORMAVAC"] = (
-            pensionistas["FORMAVAC"].fillna("VIVO").replace("", "VIVO")
-        )
-        pensionistas["FORMAVAC"] = pensionistas["FORMAVAC"].replace(
-            "Falecimento", "FALECIMENTO"
-        )
-        pensionistas["ID_FUNCIONAL_INSTITUIDOR"] = pd.to_numeric(
-            pensionistas["ID_FUNCIONAL_INSTITUIDOR"], errors="coerce"
-        )
-        pensionistas["DS_PREFIXO"] = pensionistas["ID_FUNCIONAL_INSTITUIDOR"]
-        pensionistas["DTAPOSENT"] = pd.to_datetime(
-            "2200-12-31", format="%Y-%m-%d"
-        )
-        pensionistas["TIPO_BENEFICIO"] = 222
-        pensionistas["DATA_FIM"] = pensionistas["DTVAC"]
-        pensionistas["DATA_INICIO"] = pensionistas["DT_INICIO_PENSAO"]
-        pensionistas["CLASSE"] = "PENSIONISTA"
+    s = (
+        serie.astype("string")
+        .str.strip()
+        .replace({
+            "": pd.NA,
+            "nan": pd.NA,
+            "None": pd.NA
+        })
+    )
 
-        colunas_padrao = [
+    return pd.to_datetime(
+        s,
+        errors="coerce",
+        dayfirst=True
+    )
+
+
+def normalizar_id(serie: pd.Series) -> pd.Series:
+
+    s = serie.astype("string").str.strip()
+
+    s = s.str.replace(
+        r"\.0$",
+        "",
+        regex=True
+    )
+
+    return s.replace({
+        "": pd.NA,
+        "nan": pd.NA,
+        "None": pd.NA
+    })
+
+
+def normalizar_sexo(serie: pd.Series) -> pd.Series:
+
+    return (
+        serie.astype("string")
+        .str.strip()
+        .str.upper()
+        .replace({
+            "MASCULINO": "M",
+            "FEMININO": "F"
+        })
+    )
+
+
+# PREPARAÇÃO DAS BASES
+
+def preparar_bases(
+    ativos: pd.DataFrame,
+    inativos: pd.DataFrame,
+    pensionistas: pd.DataFrame
+) -> pd.DataFrame:
+
+    exigir_colunas(
+        ativos,
+        [
             "ID_FUNCIONAL",
             "DTNASC",
             "DTEXERC",
@@ -182,327 +186,1010 @@ if executar or st.session_state.executado:
             "SEXO",
             "ORGAO_ORIGEM",
             "REGIMEJUR",
-            "PLANO",
-            "TIPO_BENEFICIO",
+            "PLANO"
+        ],
+        "Ativos"
+    )
+
+    exigir_colunas(
+        inativos,
+        [
+            "ID_FUNCIONAL",
+            "DTNASC",
+            "DTEXERC",
             "DTAPOSENT",
-            "DS_PREFIXO",
-            "DATA_FIM",
-            "DATA_INICIO",
-            "CLASSE",
-        ]
-        pensionistas_mod = pensionistas.rename(
-            columns={
-                "NUMFUNC": "ID_FUNCIONAL",
-                "DT_INICIO_PENSAO": "DTEXERC",
-            }
+            "DTVAC",
+            "FORMAVAC",
+            "SEXO",
+            "ORGAO_ORIGEM",
+            "REGIMEJUR",
+            "PLANO"
+        ],
+        "Inativos"
+    )
+
+    exigir_colunas(
+        pensionistas,
+        [
+            "NUMFUNC",
+            "DTNASC",
+            "DT_INICIO_PENSAO",
+            "DTVAC",
+            "FORMAVAC",
+            "SEXO",
+            "ORGAO_ORIGEM",
+            "REGIMEJUR",
+            "PLANO"
+        ],
+        "Pensionistas"
+    )
+
+    # ATIVOS
+
+    a = ativos.copy()
+
+    a["DTAPOSENT"] = a["DTVAC"]
+    a["DATA_INICIO"] = a["DTEXERC"]
+    a["DATA_FIM"] = a["DTVAC"]
+
+    a["CLASSE"] = "ATIVO"
+    a["TIPO_BENEFICIO"] = "222"
+    a["DS_PREFIXO"] = "111"
+
+    # INATIVOS
+
+    i = inativos.copy()
+
+    i = i[
+        i["DTAPOSENT"].notna()
+        & i["DTAPOSENT"].astype("string").str.strip().ne("")
+    ].copy()
+
+    i["DATA_INICIO"] = i["DTAPOSENT"]
+    i["DATA_FIM"] = i["DTVAC"]
+
+    i["CLASSE"] = "INATIVO"
+
+    if "TIPO_BENEFICIO" not in i.columns:
+
+        i["TIPO_BENEFICIO"] = "222"
+
+    else:
+
+        i["TIPO_BENEFICIO"] = (
+            i["TIPO_BENEFICIO"].fillna("222")
         )
 
-        dados_gerais = pd.concat(
-            [
-                ativos[colunas_padrao],
-                inativos[colunas_padrao],
-                pensionistas_mod[colunas_padrao],
-            ],
-            ignore_index=True,
+    i["DS_PREFIXO"] = "111"
+
+    # PENSIONISTAS
+
+    p = pensionistas.copy()
+
+    p = p.rename(
+        columns={
+            "NUMFUNC": "ID_FUNCIONAL",
+            "DT_INICIO_PENSAO": "DTEXERC"
+        }
+    )
+
+    p["DTAPOSENT"] = "31/12/2500"
+
+    p["DATA_INICIO"] = p["DTEXERC"]
+    p["DATA_FIM"] = p["DTVAC"]
+
+    p["CLASSE"] = "PENSIONISTA"
+    p["TIPO_BENEFICIO"] = "222"
+
+    p["DS_PREFIXO"] = p.get(
+        "ID_FUNCIONAL_INSTITUIDOR",
+        pd.Series("", index=p.index)
+    )
+
+    # COLUNAS PADRONIZADAS
+
+    cols = [
+        "ID_FUNCIONAL",
+        "DTNASC",
+        "DTEXERC",
+        "DTVAC",
+        "FORMAVAC",
+        "SEXO",
+        "ORGAO_ORIGEM",
+        "REGIMEJUR",
+        "PLANO",
+        "TIPO_BENEFICIO",
+        "DTAPOSENT",
+        "DS_PREFIXO",
+        "DATA_FIM",
+        "DATA_INICIO",
+        "CLASSE"
+    ]
+
+    for frame in (a, i, p):
+
+        frame["ID_FUNCIONAL"] = normalizar_id(
+            frame["ID_FUNCIONAL"]
         )
 
-        dados_gerais = dados_gerais.drop_duplicates(
-            subset=["ID_FUNCIONAL"], keep="first"
+    # POPULAÇÃO CIVIL
+
+    a_civ = a[
+        a["REGIMEJUR"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+        .ne("ESTATUTO MILITAR")
+    ]
+
+    i_civ = i[
+        i["REGIMEJUR"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+        .ne("ESTATUTO MILITAR")
+    ]
+
+    civil = pd.concat(
+        [
+            x.reindex(columns=cols)
+            for x in (a_civ, i_civ, p)
+        ],
+        ignore_index=True
+    )
+
+    civil = (
+        civil
+        .dropna(subset=["ID_FUNCIONAL"])
+        .drop_duplicates(
+            "ID_FUNCIONAL",
+            keep="first"
+        )
+        .copy()
+    )
+
+    civil["POPULACAO"] = "CIVIL"
+
+    # POPULAÇÃO MILITAR
+
+    a_mil = a[
+        a["REGIMEJUR"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+        .eq("ESTATUTO MILITAR")
+    ]
+
+    i_mil = i[
+        i["REGIMEJUR"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+        .eq("ESTATUTO MILITAR")
+    ]
+
+    militar = pd.concat(
+        [
+            x.reindex(columns=cols)
+            for x in (a_mil, i_mil)
+        ],
+        ignore_index=True
+    )
+
+    militar = (
+        militar
+        .dropna(subset=["ID_FUNCIONAL"])
+        .drop_duplicates(
+            "ID_FUNCIONAL",
+            keep="first"
+        )
+        .copy()
+    )
+
+    militar["POPULACAO"] = "MILITAR"
+
+    # BASE FINAL
+
+    base = pd.concat(
+        [civil, militar],
+        ignore_index=True
+    )
+
+    for c in [
+        "DTNASC",
+        "DTEXERC",
+        "DTVAC",
+        "DTAPOSENT",
+        "DATA_FIM",
+        "DATA_INICIO"
+    ]:
+
+        base[c] = data_flexivel(base[c])
+
+    form = (
+        base["FORMAVAC"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+    )
+
+    base["FORMAVAC"] = (
+        form.mask(
+            form.isna() | form.eq(""),
+            "VIVO"
+        )
+    )
+
+    base["SEXO"] = normalizar_sexo(
+        base["SEXO"]
+    )
+
+    base["ORGAO_ORIGEM"] = (
+        base["ORGAO_ORIGEM"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+    )
+
+    base["REGIMEJUR"] = (
+        base["REGIMEJUR"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+    )
+
+    base["DATA_FIM"] = (
+        base["DATA_FIM"]
+        .fillna(pd.Timestamp("2200-01-01"))
+    )
+
+    return base
+
+
+# PERÍODO DE OBSERVAÇÃO
+
+def construir_observacao(
+    base: pd.DataFrame,
+    inicio: pd.Timestamp,
+    fim: pd.Timestamp
+) -> pd.DataFrame:
+
+    if inicio > fim:
+
+        raise ValueError(
+            "A data inicial deve ser anterior ou igual à data final."
         )
 
-        dados_gerais["Inicio_Obs"] = dados_gerais["DATA_INICIO"].clip(
-            lower=data_inicio_obs
+    d = base.copy()
+
+    d["Inicio_Obs"] = (
+        d["DATA_INICIO"].clip(lower=inicio)
+    )
+
+    d["Final_Obs"] = (
+        d["DATA_FIM"].clip(upper=fim)
+    )
+
+    d["Nao_Censura"] = (
+        d["FORMAVAC"].eq("FALECIMENTO")
+        & d["DATA_FIM"].between(
+            inicio,
+            fim,
+            inclusive="both"
         )
-        dados_gerais["Final_Obs"] = dados_gerais["DATA_FIM"].clip(
-            upper=data_final_obs
-        )
+    )
 
-        cond_nao_censura = (
-            (dados_gerais["FORMAVAC"] == "FALECIMENTO")
-            & (dados_gerais["DATA_FIM"] <= data_final_obs)
-            & (dados_gerais["DATA_FIM"] >= data_inicio_obs)
-        )
-        dados_gerais["Nao_Censura"] = cond_nao_censura
+    d["Idade_no_Inicio"] = (
+        (d["Inicio_Obs"] - d["DTNASC"]).dt.days
+        / 365.25
+    )
 
-        dados_gerais["Idade_no_Inicio"] = (
-            dados_gerais["Inicio_Obs"] - dados_gerais["DTNASC"]
-        ).dt.days / 365.25
-        dados_gerais["Idade_no_Fim"] = (
-            dados_gerais["Final_Obs"] - dados_gerais["DTNASC"]
-        ).dt.days / 365.25
-        dados_gerais = dados_gerais[dados_gerais["Idade_no_Fim"] <= 116]
+    d["Idade_no_Fim"] = (
+        (d["Final_Obs"] - d["DTNASC"]).dt.days
+        / 365.25
+    )
 
-        dados_gerais_obs = dados_gerais[
-            (dados_gerais["Final_Obs"] >= data_inicio_obs)
-            & (dados_gerais["Inicio_Obs"] <= data_final_obs)
-        ].copy()
+    d = d[
+        d["DTNASC"].notna()
+        & d["Inicio_Obs"].notna()
+        & d["Final_Obs"].notna()
+    ]
 
-        dados_gerais_obs["Idade_no_Inicio"] = (
-            dados_gerais_obs["Inicio_Obs"] - dados_gerais_obs["DTNASC"]
-        ).dt.days / 365.25
-        dados_gerais_obs["Idade_no_Fim"] = (
-            dados_gerais_obs["Final_Obs"] - dados_gerais_obs["DTNASC"]
-        ).dt.days / 365.25
+    d = d[
+        d["Idade_no_Fim"] <= 116
+    ]
 
-        # Segregação
-        df_civis_m = dados_gerais_obs[
-            (dados_gerais_obs["REGIMEJUR"] != "ESTATUTO MILITAR")
-            & (dados_gerais_obs["SEXO"] == "M")
-        ].copy()
-        df_civis_f = dados_gerais_obs[
-            (dados_gerais_obs["REGIMEJUR"] != "ESTATUTO MILITAR")
-            & (dados_gerais_obs["SEXO"] == "F")
-        ].copy()
+    d = d[
+        (d["Final_Obs"] >= inicio)
+        & (d["Inicio_Obs"] <= fim)
+    ].copy()
 
-        df_pm_m = dados_gerais_obs[
-            (dados_gerais_obs["ORGAO_ORIGEM"] == "SEPM")
-            & (dados_gerais_obs["SEXO"] == "M")
-        ].copy()
-        df_pm_f = dados_gerais_obs[
-            (dados_gerais_obs["ORGAO_ORIGEM"] == "SEPM")
-            & (dados_gerais_obs["SEXO"] == "F")
-        ].copy()
+    return d
 
-        df_cb_m = dados_gerais_obs[
-            (dados_gerais_obs["ORGAO_ORIGEM"] == "SEDEC")
-            & (dados_gerais_obs["SEXO"] == "M")
-        ].copy()
-        df_cb_f = dados_gerais_obs[
-            (dados_gerais_obs["ORGAO_ORIGEM"] == "SEDEC")
-            & (dados_gerais_obs["SEXO"] == "F")
-        ].copy()
 
-        for col in tabuas_mortalidade.columns:
-          if col != "idade":
-            # Converte com segurança tratando vírgula como ponto decimal
-            if tabuas_mortalidade[col].dtype == object:
-              tabuas_mortalidade[col] = (
-                  tabuas_mortalidade[col]
-                  .astype(str)
-                  .str.replace(".", "", regex=False)
-                  .str.replace(",", ".", regex=False)
-              )
-            tabuas_mortalidade[col] = pd.to_numeric(
-                tabuas_mortalidade[col], errors="coerce"
-            ).fillna(0.0)
+# CÁLCULO DA EXPOSIÇÃO POR IDADE
 
-        ano_inicio_int = data_inicio_obs.year
-        ano_fim_int = data_final_obs.year
-        anos_estudo = range(ano_inicio_int, ano_fim_int + 1)
+def exposicao_por_idade_ano(
+    df: pd.DataFrame,
+    ano_inicio: pd.Timestamp,
+    ano_fim: pd.Timestamp
+) -> np.ndarray:
 
-        datas_inicio_anos = pd.to_datetime(
-            [f"{a}-01-01" for a in anos_estudo]
-        )
-        datas_fim_anos = pd.to_datetime([f"{a}-12-31" for a in anos_estudo])
+    inicio_ano = max(
+        ano_inicio,
+        pd.Timestamp(ano_inicio.year, 1, 1)
+    )
 
-        def processar_aderencia_sexo(df_obs, tabuas_df, nome_coluna_tabua):
-          saidas_obs = df_obs[df_obs["Nao_Censura"] == True].copy()
-          max_idade = 126
+    fim_ano = min(
+        ano_fim,
+        pd.Timestamp(ano_inicio.year, 12, 31)
+    )
 
-          num_obitos_df = pd.DataFrame({"IDADE": range(max_idade + 1)})
-          for ano in anos_estudo:
-            num_obitos_df[str(ano)] = 0
+    if inicio_ano > fim_ano or df.empty:
 
-          saidas_obs["Idade_Inteira_Obito"] = np.floor(
-              saidas_obs["Idade_no_Fim"]
-          ).astype(int)
-
-          for idade in range(max_idade + 1):
-            for idx, ano in enumerate(anos_estudo):
-              d_ini = datas_inicio_anos[idx]
-              d_fim = datas_fim_anos[idx]
-              contagem = len(
-                  saidas_obs[
-                      (saidas_obs["Idade_Inteira_Obito"] == idade)
-                      & (saidas_obs["DATA_FIM"] >= d_ini)
-                      & (saidas_obs["DATA_FIM"] <= d_fim)
-                  ]
-              )
-              num_obitos_df.loc[num_obitos_df["IDADE"] == idade, str(ano)] = (
-                  contagem
-              )
-
-          num_obitos_df["TOTAL"] = num_obitos_df[
-              [str(a) for a in anos_estudo]
-          ].sum(axis=1)
-
-          num_expostos_df = pd.DataFrame({"IDADE": range(max_idade + 1)})
-          for ano in anos_estudo:
-            num_expostos_df[str(ano)] = 0.0
-
-          for idx, ano in enumerate(anos_estudo):
-            d_ini = datas_inicio_anos[idx]
-            d_fim = datas_fim_anos[idx]
-            obs_ini = df_obs["Inicio_Obs"].clip(lower=d_ini, upper=d_fim)
-            obs_fim = df_obs["Final_Obs"].clip(lower=d_ini, upper=d_fim)
-            valid = obs_ini <= obs_fim
-            if not valid.any():
-              continue
-            sub = df_obs[valid].copy()
-            anos_exp = (obs_fim[valid] - obs_ini[valid]).dt.days / 365.25
-            sub["_exp_ano"] = anos_exp
-            sub["_idade_int"] = np.floor(sub["Idade_no_Inicio"]).astype(int)
-            exp_por_idade = sub.groupby("_idade_int")["_exp_ano"].sum()
-            for idade in range(max_idade + 1):
-              if idade in exp_por_idade:
-                num_expostos_df.loc[
-                    num_expostos_df["IDADE"] == idade, str(ano)
-                ] = exp_por_idade[idade]
-
-          num_expostos_df["TOTAL"] = num_expostos_df[
-              [str(a) for a in anos_estudo]
-          ].sum(axis=1)
-
-          tabela_auditoria = pd.DataFrame({"IDADE": range(max_idade + 1)})
-          tabela_auditoria["Observados"] = num_obitos_df["TOTAL"]
-          tabela_auditoria["Expostos"] = num_expostos_df["TOTAL"]
-
-          prob_qx = (
-              tabuas_df.set_index("idade")[nome_coluna_tabua]
-              .reindex(range(max_idade + 1))
-              .fillna(0)
-              .values
-          )
-          tabela_auditoria["Esperados"] = (
-              tabela_auditoria["Expostos"] * prob_qx
-          )
-
-          return tabela_auditoria
-
-        auditoria_civis_m = processar_aderencia_sexo(
-            df_civis_m,
-            tabuas_mortalidade,
-            "Tabua_Mort_Civil_Masculino_UP_94_M_mais8",
-        )
-        auditoria_civis_f = processar_aderencia_sexo(
-            df_civis_f,
-            tabuas_mortalidade,
-            "Tabua_Mort_Civil_Feminino_SGB_71_menos74",
+        return np.zeros(
+            MAX_AGE + 1,
+            dtype=float
         )
 
-        auditoria_pm_m = processar_aderencia_sexo(
-            df_pm_m, tabuas_mortalidade, "Tabua_Mort_PMERJ_AT_55"
+    ini = df["Inicio_Obs"].clip(
+        lower=inicio_ano,
+        upper=fim_ano
+    )
+
+    fim_individual = df["Final_Obs"].where(
+        df["Nao_Censura"],
+        fim_ano
+    )
+
+    fim_individual = fim_individual.clip(
+        lower=inicio_ano,
+        upper=fim_ano
+    )
+
+    valid = (
+        ini.notna()
+        & fim_individual.notna()
+        & (ini <= fim_individual)
+    )
+
+    if not valid.any():
+
+        return np.zeros(
+            MAX_AGE + 1,
+            dtype=float
         )
-        auditoria_pm_f = processar_aderencia_sexo(
-            df_pm_f, tabuas_mortalidade, "Tabua_Mort_PMERJ_AT_55"
+
+    sub = df.loc[valid]
+
+    idade_ini = (
+        (ini.loc[valid] - sub["DTNASC"])
+        .dt.days.to_numpy(dtype=float)
+        / 365.25
+    )
+
+    idade_fim = (
+        (fim_individual.loc[valid] - sub["DTNASC"])
+        .dt.days.to_numpy(dtype=float)
+        / 365.25
+    )
+
+    exp = np.zeros(
+        MAX_AGE + 1,
+        dtype=float
+    )
+
+    for x in range(MAX_AGE + 1):
+
+        # Permanece na mesma idade.
+        mesma = (
+            (np.floor(idade_ini) == x)
+            & (np.floor(idade_fim) == x)
         )
 
-        auditoria_cb_m = processar_aderencia_sexo(
-            df_cb_m, tabuas_mortalidade, "Tabua_Mort_CBMERJ_UP_94_M_mais6"
-        )
-        auditoria_cb_f = processar_aderencia_sexo(
-            df_cb_f, tabuas_mortalidade, "Tabua_Mort_CBMERJ_UP_94_M_mais6"
-        )
+        exp[x] += np.maximum(
+            idade_fim[mesma] - idade_ini[mesma],
+            0
+        ).sum()
 
-        st.success(
-            f"✅ Auditoria executada com sucesso para o período de"
-            f" {data_inicio_obs.strftime('%d/%m/%Y')} a"
-            f" {data_final_obs.strftime('%d/%m/%Y')}!"
+        # Começa na idade x e atravessa para x+1.
+        atravessa = (
+            (np.floor(idade_ini) == x)
+            & (np.floor(idade_fim) == x + 1)
         )
 
-        # Totais de Óbitos por Categoria
-        obitos_civis = auditoria_civis_m['Observados'].sum() + auditoria_civis_f['Observados'].sum()
-        obitos_pm = auditoria_pm_m['Observados'].sum() + auditoria_pm_f['Observados'].sum()
-        obitos_cb = auditoria_cb_m['Observados'].sum() + auditoria_cb_f['Observados'].sum()
-        total_obitos = obitos_civis + obitos_pm + obitos_cb
+        exp[x] += np.maximum(
+            (x + 1) - idade_ini[atravessa],
+            0
+        ).sum()
 
-        # Blocos de Métricas Superiores Organizados
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("👥 Total Segurados", f"{len(dados_gerais_obs):,}".replace(",", "."))
-        col2.metric("✝️ Total Óbitos Gerais", f"{total_obitos:,.0f}".replace(",", "."))
-        col3.metric("👮 Óbitos PMERJ", f"{obitos_pm:,.0f}".replace(",", "."))
-        col4.metric("🚒 Óbitos CBMERJ", f"{obitos_cb:,.0f}".replace(",", "."))
+        # Começa na idade x-1 e termina na idade x.
+        termina = (
+            (np.floor(idade_ini) == x - 1)
+            & (np.floor(idade_fim) == x)
+        )
 
-        st.markdown("---")
+        exp[x] += np.maximum(
+            idade_fim[termina] - x,
+            0
+        ).sum()
 
-        tab1, tab2, tab3 = st.tabs([
-            "🏛️ Civis",
-            "👮 Polícia Militar (SEPM)",
-            "🚒 Bombeiros (SEDEC)",
-        ])
+    return exp
 
-        with tab1:
-          col_m, col_f = st.columns(2)
-          with col_m:
-            st.subheader("Civis - Masculino")
-            st.dataframe(auditoria_civis_m, use_container_width=True)
-            st.line_chart(
-                auditoria_civis_m.set_index("IDADE")[["Observados", "Esperados"]]
+
+# LEITURA DAS TÁBUAS
+
+def ler_tabuas(upload) -> pd.DataFrame:
+
+    t = ler_csv(
+        upload,
+        "Tábuas de mortalidade"
+    )
+
+    mapa = {
+        c: c.strip()
+        for c in t.columns
+    }
+
+    t = t.rename(columns=mapa)
+
+    col_idade = next(
+        (
+            c for c in t.columns
+            if c.lower() in ("idade", "idade.x")
+        ),
+        None
+    )
+
+    if col_idade is None:
+
+        raise ValueError(
+            "A tabela de tábuas precisa ter uma coluna 'idade'."
+        )
+
+    t = t.rename(
+        columns={
+            col_idade: "idade"
+        }
+    )
+
+    t["idade"] = pd.to_numeric(
+        t["idade"].astype(str).str.replace(",", "."),
+        errors="coerce"
+    )
+
+    for c in t.columns:
+
+        if c == "idade":
+            continue
+
+        s = (
+            t[c]
+            .astype("string")
+            .str.strip()
+        )
+
+        tem_virgula = s.str.contains(
+            ",",
+            na=False
+        )
+
+        s = s.where(
+            ~tem_virgula,
+            s.str.replace(".", "", regex=False)
+             .str.replace(",", ".", regex=False)
+        )
+
+        t[c] = pd.to_numeric(
+            s,
+            errors="coerce"
+        )
+
+    t = (
+        t.dropna(subset=["idade"])
+        .drop_duplicates("idade")
+        .set_index("idade")
+        .reindex(range(MAX_AGE + 1))
+    )
+
+    return t
+
+
+# CÁLCULO DE OBSERVADOS, EXPOSTOS E ESPERADOS
+
+def calcular_grupo(
+    df: pd.DataFrame,
+    tabuas: pd.DataFrame,
+    coluna_tabua: str,
+    inicio: pd.Timestamp,
+    fim: pd.Timestamp
+):
+
+    if coluna_tabua not in tabuas.columns:
+
+        raise ValueError(
+            f"A coluna de tábua '{coluna_tabua}' "
+            "não foi encontrada no CSV."
+        )
+
+    # EXPOSIÇÃO
+
+    exposicao = np.zeros(
+        MAX_AGE + 1,
+        dtype=float
+    )
+
+    for ano in range(
+        inicio.year,
+        fim.year + 1
+    ):
+
+        ini_ano = max(
+            inicio,
+            pd.Timestamp(ano, 1, 1)
+        )
+
+        fim_ano = min(
+            fim,
+            pd.Timestamp(ano, 12, 31)
+        )
+
+        exposicao += exposicao_por_idade_ano(
+            df,
+            ini_ano,
+            fim_ano
+        )
+
+    # OBSERVADOS
+
+    obitos = np.zeros(
+        MAX_AGE + 1,
+        dtype=float
+    )
+
+    mortos = df[
+        df["Nao_Censura"]
+    ].copy()
+
+    if not mortos.empty:
+
+        idade_obito = np.floor(
+            mortos["Idade_no_Fim"]
+        ).astype(int)
+
+        contagem = idade_obito.value_counts()
+
+        for idade, quantidade in contagem.items():
+
+            if 0 <= idade <= MAX_AGE:
+
+                obitos[idade] = quantidade
+
+    # ESPERADOS
+
+    qx = tabuas[coluna_tabua].to_numpy(
+        dtype=float
+    )
+
+    qx = np.nan_to_num(
+        qx,
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0
+    )
+
+    qx = np.clip(
+        qx,
+        0,
+        1
+    )
+
+    esperados = exposicao * qx
+
+    # TABELA FINAL
+
+    resultado = pd.DataFrame({
+
+        "Idade": np.arange(
+            MAX_AGE + 1
+        ),
+
+        "Observados": obitos,
+
+        "Expostos": exposicao,
+
+        "Esperados": esperados
+
+    })
+
+    total_obs = float(
+        obitos.sum()
+    )
+
+    total_esp = float(
+        esperados.sum()
+    )
+
+    resumo = {
+
+        "Óbitos observados": total_obs,
+
+        "Óbitos esperados": total_esp,
+
+        "Razão O/E": (
+            total_obs / total_esp
+            if total_esp > 0
+            else np.nan
+        )
+
+    }
+
+    return resultado, resumo
+
+# CONTROLE DO BOTÃO LIMPAR TUDO
+
+if "limpeza_uploads" not in st.session_state:
+    st.session_state["limpeza_uploads"] = 0
+
+
+def limpar_tudo():
+    # Gera novas chaves para limpar os arquivos carregados
+    st.session_state["limpeza_uploads"] += 1
+
+    # Restaura as datas
+    st.session_state["dt_inicio"] = date(2019, 1, 1)
+    st.session_state["dt_fim"] = date(2023, 12, 31)
+
+# INTERFACE
+
+with st.sidebar:
+
+    st.header("📂 Arquivos de entrada")
+
+    up_ativos = st.file_uploader(
+        "Ativos.csv",
+        type="csv",
+        key=f"ativos_{st.session_state['limpeza_uploads']}"
+    )
+
+    up_inativos = st.file_uploader(
+        "Inativos.csv",
+        type="csv",
+        key=f"inativos_{st.session_state['limpeza_uploads']}"
+    )
+
+    up_pens = st.file_uploader(
+        "Pensionistas.csv",
+        type="csv",
+        key=f"pensionistas_{st.session_state['limpeza_uploads']}"
+    )
+
+    up_tabuas = st.file_uploader(
+        "Tábuas de mortalidade.csv",
+        type="csv",
+        key=f"tabuas_{st.session_state['limpeza_uploads']}"
+    )
+
+    st.divider()
+
+    st.header("📅 Período de observação")
+
+    col_ini, col_fim = st.columns(2)
+
+    with col_ini:
+        dt_inicio = st.date_input(
+            "Data Inicial",
+            value=date(2019, 1, 1),
+            format="DD/MM/YYYY",
+            key="dt_inicio"
+        )
+
+    with col_fim:
+        dt_fim = st.date_input(
+            "Data Final",
+            value=date(2023, 12, 31),
+            format="DD/MM/YYYY",
+            key="dt_fim"
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    executar = st.button(
+        "🚀 Executar auditoria",
+        type="primary",
+        use_container_width=True
+    )
+
+    st.button(
+        "🧹 Limpar tudo",
+        use_container_width=True,
+        on_click=limpar_tudo
+    )
+
+
+# EXECUÇÃO
+
+if executar:
+
+    if not all([
+        up_ativos,
+        up_inativos,
+        up_pens,
+        up_tabuas
+    ]):
+
+        st.error(
+            "⚠️ Envie os quatro arquivos obrigatórios: "
+            "Ativos, Inativos, Pensionistas e Tábuas."
+        )
+
+    elif not dt_inicio or not dt_fim:
+
+        st.error(
+            "⚠️ Selecione a data inicial e a data final do período."
+        )
+
+    elif dt_inicio > dt_fim:
+
+        st.error(
+            "⚠️ A data inicial não pode ser posterior à data final."
+        )
+
+    else:
+
+        try:
+
+            inicio = pd.Timestamp(dt_inicio)
+            fim = pd.Timestamp(dt_fim)
+
+            with st.spinner(
+                "Lendo bases e calculando exposição e óbitos esperados..."
+            ):
+
+                ativos = ler_csv(
+                    up_ativos,
+                    "Ativos"
+                )
+
+                inativos = ler_csv(
+                    up_inativos,
+                    "Inativos"
+                )
+
+                pensionistas = ler_csv(
+                    up_pens,
+                    "Pensionistas"
+                )
+
+                tabuas = ler_tabuas(
+                    up_tabuas
+                )
+
+                base = preparar_bases(
+                    ativos,
+                    inativos,
+                    pensionistas
+                )
+
+                obs = construir_observacao(
+                    base,
+                    inicio,
+                    fim
+                )
+
+                # SEPARAÇÃO DAS POPULAÇÕES
+
+                civis = obs[
+                    obs["POPULACAO"].eq("CIVIL")
+                ].copy()
+
+                militares = obs[
+                    obs["POPULACAO"].eq("MILITAR")
+                ].copy()
+
+
+                grupos = {
+
+                    "Civil_Masculino": (
+                        civis[
+                            civis["SEXO"].eq("M")
+                        ],
+                        "Tabua_Mort_Civil_Masculino_UP_94_M_mais8"
+                    ),
+
+                    "Civil_Feminino": (
+                        civis[
+                            civis["SEXO"].eq("F")
+                        ],
+                        "Tabua_Mort_Civil_Feminino_SGB_71_menos74"
+                    ),
+
+                    "PMERJ": (
+                        militares[
+                            militares["ORGAO_ORIGEM"].eq("SEPM")
+                        ],
+                        "Tabua_Mort_PMERJ_AT_55"
+                    ),
+
+                    "CBMERJ": (
+                        militares[
+                            militares["ORGAO_ORIGEM"].eq("SEDEC")
+                        ],
+                        "Tabua_Mort_CBMERJ_UP_94_M_mais6"
+                    )
+
+                }
+
+
+                resultados = {}
+                resumos = {}
+
+                for nome, (df_grupo, coluna) in grupos.items():
+
+                    resultados[nome], resumos[nome] = calcular_grupo(
+                        df_grupo,
+                        tabuas,
+                        coluna,
+                        inicio,
+                        fim
+                    )
+
+            # RESULTADO GERAL
+
+            st.success(
+                f"✨ Auditoria concluída com sucesso: "
+                f"{inicio:%d/%m/%Y} a {fim:%d/%m/%Y}."
             )
-          with col_f:
-            st.subheader("Civis - Feminino")
-            st.dataframe(auditoria_civis_f, use_container_width=True)
-            st.line_chart(
-                auditoria_civis_f.set_index("IDADE")[["Observados", "Esperados"]]
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # QUADROS (MÉTRICAS) EM CIMÁ
+            c1, c2, c3 = st.columns(3)
+
+            with c1:
+                st.metric(
+                    "👥 Segurados na observação",
+                    f"{len(obs):,}".replace(",", ".")
+                )
+
+            with c2:
+                st.metric(
+                    "✝️ Óbitos observados",
+                    f"{sum(x['Óbitos observados'] for x in resumos.values()):,.0f}".replace(",", ".")
+                )
+
+            with c3:
+                val_esp = sum(x['Óbitos esperados'] for x in resumos.values())
+                val_esp_fmt = f"{val_esp:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                st.metric(
+                    "📈 Óbitos esperados",
+                    val_esp_fmt
+                )
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # RESUMO EXECUTIVO LOGO ABAIXO DOS QUADROS
+            resumo_df = (
+                pd.DataFrame(resumos)
+                .T
+                .reset_index(names="Grupo")
             )
 
-        with tab2:
-          col_m, col_f = st.columns(2)
-          with col_m:
-            st.subheader("PMERJ - Masculino")
-            st.dataframe(auditoria_pm_m, use_container_width=True)
-            st.line_chart(
-                auditoria_pm_m.set_index("IDADE")[["Observados", "Esperados"]]
-            )
-          with col_f:
-            st.subheader("PMERJ - Feminino")
-            st.dataframe(auditoria_pm_f, use_container_width=True)
-            st.line_chart(
-                auditoria_pm_f.set_index("IDADE")[["Observados", "Esperados"]]
+            st.markdown("📋 Resumo Executivo por Grupo")
+
+            st.dataframe(
+                resumo_df,
+                use_container_width=True,
+                hide_index=True
             )
 
-        with tab3:
-          col_m, col_f = st.columns(2)
-          with col_m:
-            st.subheader("CBMERJ - Masculino")
-            st.dataframe(auditoria_cb_m, use_container_width=True)
-            st.line_chart(
-                auditoria_cb_m.set_index("IDADE")[["Observados", "Esperados"]]
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.divider()
+
+            # TABELAS E GRÁFICO
+
+            st.markdown("📊 Detalhamento por Segmento Atuarial")
+            tabs = st.tabs(list(resultados.keys()))
+
+            for tab, (nome, tabela) in zip(tabs, resultados.items()):
+
+                with tab:
+
+                    st.markdown(f"🔎 Segmento: {nome.replace('_', ' ')}")
+
+                    # Tabela
+                    st.dataframe(
+                        tabela[
+                            ["Idade", "Observados", "Expostos", "Esperados"]
+                        ],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+
+                    # gráfico observados x esperados
+                    st.markdown("📈 Curva Comparativa: Óbitos Observados vs. Esperados por Idade")
+
+                    grafico_obitos = (
+                        tabela
+                        .set_index("Idade")[["Observados", "Esperados"]]
+                    )
+
+                    st.line_chart(
+                        grafico_obitos,
+                        x_label="Idade",
+                        y_label="Quantidade de óbitos"
+                    )
+            
+            st.divider()
+
+            # EXPORTAÇÃO PARA EXCEL
+
+            st.markdown("💾 Exportação de Relatórios")
+
+            output = io.BytesIO()
+
+            with pd.ExcelWriter(
+                output,
+                engine="xlsxwriter"
+            ) as writer:
+
+                resumo_df.to_excel(
+                    writer,
+                    sheet_name="Resumo",
+                    index=False
+                )
+
+                for nome, tabela in resultados.items():
+
+                    tabela[
+                        [
+                            "Idade",
+                            "Observados",
+                            "Expostos",
+                            "Esperados"
+                        ]
+                    ].to_excel(
+                        writer,
+                        sheet_name=nome[:31],
+                        index=False
+                    )
+
+                
+            st.download_buffer = output.getvalue()
+
+            st.download_button("📥 Baixar auditoria completa em Excel",
+
+                data=output.getvalue(),
+
+                file_name=(
+                    f"Auditoria_Tabuas_"
+                    f"{inicio:%Y%m%d}_{fim:%Y%m%d}.xlsx"
+                ),
+
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+
+                use_container_width=True,
+
+                on_click="ignore"
             )
-          with col_f:
-            st.subheader("CBMERJ - Feminino")
-            st.dataframe(auditoria_cb_f, use_container_width=True)
-            st.line_chart(
-                auditoria_cb_f.set_index("IDADE")[["Observados", "Esperados"]]
-            )
 
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-          auditoria_civis_m.to_excel(
-              writer, sheet_name="Civis_Masculino", index=False
-          )
-          auditoria_civis_f.to_excel(
-              writer, sheet_name="Civis_Feminino", index=False
-          )
-          auditoria_pm_m.to_excel(
-              writer, sheet_name="PMERJ_Masculino", index=False
-          )
-          auditoria_pm_f.to_excel(
-              writer, sheet_name="PMERJ_Feminino", index=False
-          )
-          auditoria_cb_m.to_excel(
-              writer, sheet_name="CBMERJ_Masculino", index=False
-          )
-          auditoria_cb_f.to_excel(
-              writer, sheet_name="CBMERJ_Feminino", index=False
-          )
-        excel_data = output.getvalue()
+        except Exception as exc:
 
-        st.download_button(
-            label="📥 Baixar Relatório Completo em Excel",
-            data=excel_data,
-            file_name=(
-                f"Resultados_Auditoria_{data_inicio_obs.year}_{data_final_obs.year}.xlsx"
-            ),
-            mime=(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
-        )
+            st.exception(exc)
 
-      except Exception as e:
-        st.error(f"❌ Ocorreu um erro durante o processamento: {e}")
 else:
-  st.info(
-      "👈 **Para começar:** Selecione os arquivos e defina o período de"
-      " observação na barra lateral à esquerda, depois clique em **Executar**."
-  )
+
+    st.markdown("""
+        <div style="padding: 20px; border-radius: 10px; background-color: #1f2937; border: 1px solid #374151; text-align: center;">
+            <h3 style="color: #f3f4f6; margin-bottom: 10px;">👋 Bem-vindo à Ferramenta de Auditoria Atuarial</h3>
+            <p style="color: #9ca3af; font-size: 16px;">
+                Na barra lateral à esquerda, carregue os arquivos <b>Ativos.csv</b>, <b>Inativos.csv</b>, <b>Pensionistas.csv</b> e o arquivo de <b>Tábuas de mortalidade.csv</b>. 
+                Em seguida, selecione o período desejado e clique em <b>Executar auditoria</b> para gerar os relatórios e gráficos analíticos.
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
